@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoUpload.Web", "PhotoUpload.Web\PhotoUpload.Web.csproj", "{268C36A9-B142-4E81-A5E7-014317EB5016}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoUpload.Data", "PhotoUpload.Data\PhotoUpload.Data.csproj", "{44434541-60C0-4EC9-8B86-7F7F75888085}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{268C36A9-B142-4E81-A5E7-014317EB5016}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{268C36A9-B142-4E81-A5E7-014317EB5016}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{268C36A9-B142-4E81-A5E7-014317EB5016}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{268C36A9-B142-4E81-A5E7-014317EB5016}.Release|Any CPU.Build.0 = Release|Any CPU
+		{44434541-60C0-4EC9-8B86-7F7F75888085}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{44434541-60C0-4EC9-8B86-7F7F75888085}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{44434541-60C0-4EC9-8B86-7F7F75888085}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{44434541-60C0-4EC9-8B86-7F7F75888085}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
