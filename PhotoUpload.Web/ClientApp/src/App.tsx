@@ -3,13 +3,13 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-import LoginPage from './pages/admin/LoginPage';
-import GalleryListPage from './pages/admin/GalleryListPage';
-import GalleryDetailPage from './pages/admin/GalleryDetailPage';
-import UsersPage from './pages/admin/UsersPage';
-import ChangePasswordPage from './pages/admin/ChangePasswordPage';
-import GalleryPage from './pages/client/GalleryPage';
-import CollagePage from './pages/client/CollagePage';
+import LoginPage from './Pages/admin/LoginPage';
+import GalleryListPage from './Pages/admin/GalleryListPage';
+import GalleryDetailPage from './Pages/admin/GalleryDetailPage';
+import UsersPage from './Pages/admin/UsersPage';
+import ChangePasswordPage from './Pages/admin/ChangePasswordPage';
+import GalleryPage from './Pages/client/GalleryPage';
+import CollagePage from './Pages/client/CollagePage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, role, mustChangePassword } = useAuth();
