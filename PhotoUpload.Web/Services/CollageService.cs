@@ -95,6 +95,9 @@ public class CollageService : ICollageService
                 try
                 {
                     using var cell = await Image.LoadAsync<Rgba32>(path);
+                    // Canvas compositing has no browser to apply EXIF orientation for it —
+                    // the pixels must be physically upright before drawing.
+                    cell.Mutate(ctx => ctx.AutoOrient());
                     cell.Mutate(ctx => ctx.Resize(new ResizeOptions
                     {
                         Size     = new Size(w, h),
@@ -105,9 +108,6 @@ public class CollageService : ICollageService
                 }
                 catch (Exception ex) { _logger.LogWarning(ex, "Skipping {Path}", path); }
             }
-
-            // ── Single diagonal watermark spanning the whole canvas ────────────
-            DrawDiagonalWatermark(canvas, totalH);
 
             // ── Save ──────────────────────────────────────────────────────────
             var name    = $"collage_{DateTime.UtcNow.Ticks}.jpg";

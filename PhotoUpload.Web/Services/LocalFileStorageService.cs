@@ -60,12 +60,8 @@ public class LocalFileStorageService : IFileStorageService
 
     public string GetPublicUrl(string relativePath)
     {
-        var request = _httpContextAccessor.HttpContext?.Request;
-        if (request != null)
-        {
-            var baseUrl = $"{request.Scheme}://{request.Host}";
-            return $"{baseUrl}/uploads/{relativePath.Replace('\\', '/')}";
-        }
-        return $"/uploads/{relativePath.Replace('\\', '/')}";
+        var segments = relativePath.Replace('\\', '/').Split('/')
+            .Select(Uri.EscapeDataString);
+        return $"/uploads/{string.Join('/', segments)}";
     }
 }

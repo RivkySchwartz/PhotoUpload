@@ -7,6 +7,7 @@ export interface Gallery {
   name: string;
   clientName: string;
   clientEmail?: string;
+  clientPhone?: string;
   maxSelections: number;
   isPasswordProtected: boolean;
   uniqueToken: string;
@@ -49,6 +50,7 @@ export interface CreateGalleryRequest {
   name: string;
   clientName: string;
   clientEmail?: string;
+  clientPhone?: string;
   maxSelections: number;
   password?: string;
 }

@@ -23,6 +23,9 @@ public class Gallery
     [MaxLength(320)]
     public string? ClientEmail { get; set; }
 
+    [MaxLength(30)]
+    public string? ClientPhone { get; set; }
+
     public int MaxSelections { get; set; }
 
     public string? PasswordHash { get; set; }

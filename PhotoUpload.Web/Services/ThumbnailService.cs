@@ -1,6 +1,7 @@
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Processing;
 using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Metadata.Profiles.Exif;
 
 namespace PhotoUpload.Web.Services;
 
@@ -35,7 +36,7 @@ public class ThumbnailService : IThumbnailService
     // ── Public API ─────────────────────────────────────────────────────────────
 
     public async Task<string?> GenerateThumbnailAsync(
-        string originalRelativePath, string galleryToken, string fileName)
+        string originalRelativePath, string galleryToken, string fileName, bool overwrite = false)
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
         if (!SupportedExtensions.Contains(ext)) return null;
@@ -48,10 +49,14 @@ public class ThumbnailService : IThumbnailService
             Directory.CreateDirectory(Path.GetDirectoryName(thumbAbsolute)!);
 
             // Another concurrent request may have already written this file
-            if (File.Exists(thumbAbsolute)) return thumbRelative;
+            if (!overwrite && File.Exists(thumbAbsolute)) return thumbRelative;
 
             using var image = await LoadImageAsync(sourcePath, ext);
             if (image == null) return null;
+
+            // Phones/cameras store pixels as captured plus an EXIF tag saying how to
+            // rotate for display. Apply that now so the thumbnail is physically upright.
+            image.Mutate(x => x.AutoOrient());
 
             int h = (int)((double)image.Height / image.Width * ThumbnailWidth);
             image.Mutate(x => x.Resize(ThumbnailWidth, h));
@@ -73,7 +78,7 @@ public class ThumbnailService : IThumbnailService
     }
 
     public async Task<string?> GeneratePreviewAsync(
-        string originalRelativePath, string galleryToken, string fileName)
+        string originalRelativePath, string galleryToken, string fileName, bool overwrite = false)
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
         if (!SupportedExtensions.Contains(ext)) return null;
@@ -86,11 +91,15 @@ public class ThumbnailService : IThumbnailService
             Directory.CreateDirectory(Path.GetDirectoryName(previewAbsolute)!);
 
             // Another concurrent request may have already written this file
-            if (File.Exists(previewAbsolute)) return previewRelative;
+            if (!overwrite && File.Exists(previewAbsolute)) return previewRelative;
 
             if (RawExtensions.Contains(ext))
             {
-                // RAW: extract embedded JPEG candidates, try each until one decodes
+                // RAW: extract embedded JPEG candidates, try each until one decodes.
+                // The embedded JPEG itself carries no orientation tag of its own — the
+                // camera only records it once, on the RAW file's own IFD0 — so it has
+                // to be read separately and applied to the decoded candidate.
+                var orientation = ReadRawOrientation(sourcePath);
                 foreach (var jpegBytes in ExtractJpegCandidates(sourcePath))
                 {
                     try
@@ -104,18 +113,19 @@ public class ThumbnailService : IThumbnailService
 
                         try
                         {
-                            if (info.Width <= PreviewWidth)
+                            ms.Position = 0;
+                            using var image = await Image.LoadAsync(ms);
+                            // Apply the EXIF orientation before sizing decisions — rotation
+                            // can swap width/height, and the raw candidate bytes are never
+                            // physically rotated on their own.
+                            ApplyOrientationTag(image, orientation);
+                            image.Mutate(x => x.AutoOrient());
+                            if (image.Width > PreviewWidth)
                             {
-                                await File.WriteAllBytesAsync(previewAbsolute, jpegBytes);
-                            }
-                            else
-                            {
-                                ms.Position = 0;
-                                using var image = await Image.LoadAsync(ms);
                                 int h = (int)((double)image.Height / image.Width * PreviewWidth);
                                 image.Mutate(x => x.Resize(PreviewWidth, h));
-                                await image.SaveAsJpegAsync(previewAbsolute, new JpegEncoder { Quality = 92 });
                             }
+                            await image.SaveAsJpegAsync(previewAbsolute, new JpegEncoder { Quality = 92 });
                         }
                         catch (IOException) when (File.Exists(previewAbsolute)) { /* race — file written by other request */ }
                         return previewRelative;
@@ -127,8 +137,9 @@ public class ThumbnailService : IThumbnailService
             }
             else
             {
-                // Regular image: decode and resize to preview width if needed
+                // Regular image: decode, auto-orient, and resize to preview width if needed
                 using var image = await Image.LoadAsync(sourcePath);
+                image.Mutate(x => x.AutoOrient());
                 if (image.Width > PreviewWidth)
                 {
                     int h = (int)((double)image.Height / image.Width * PreviewWidth);
@@ -155,12 +166,15 @@ public class ThumbnailService : IThumbnailService
     {
         if (!RawExtensions.Contains(ext)) return await Image.LoadAsync(sourcePath);
 
+        var orientation = ReadRawOrientation(sourcePath);
         foreach (var jpegData in ExtractJpegCandidates(sourcePath))
         {
             try
             {
                 using var ms = new MemoryStream(jpegData);
-                return await Image.LoadAsync(ms);
+                var image = await Image.LoadAsync(ms);
+                ApplyOrientationTag(image, orientation);
+                return image;
             }
             catch (Exception ex) when (IsDecodeError(ex)) { /* try next candidate */ }
         }
@@ -171,6 +185,57 @@ public class ThumbnailService : IThumbnailService
 
     private static bool IsDecodeError(Exception ex) =>
         ex is InvalidImageContentException or UnknownImageFormatException;
+
+    private static void ApplyOrientationTag(Image image, ushort orientation)
+    {
+        if (orientation <= 1) return; // already normal, or none found
+        image.Metadata.ExifProfile ??= new ExifProfile();
+        image.Metadata.ExifProfile.SetValue(ExifTag.Orientation, orientation);
+    }
+
+    /// <summary>
+    /// Reads the EXIF Orientation tag (0x0112) straight from the RAW file's own IFD0.
+    /// The embedded preview/thumbnail JPEGs extracted from RAW files are raw sensor-order
+    /// bitmaps with no orientation metadata of their own — the camera records it once, on
+    /// the RAW file's main image directory, and every embedded JPEG relies on that same
+    /// value for correct display.
+    /// </summary>
+    private static ushort ReadRawOrientation(string rawFilePath)
+    {
+        try
+        {
+            using var fs = new FileStream(rawFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (fs.Length < 8) return 1;
+            fs.Position = 0;
+
+            int b0 = fs.ReadByte(), b1 = fs.ReadByte();
+            bool le = b0 == 'I' && b1 == 'I';
+            if (!le && !(b0 == 'M' && b1 == 'M')) return 1;
+
+            using var r = new BinaryReader(fs, System.Text.Encoding.ASCII, leaveOpen: true);
+            ushort magic = ReadU16(r, le);
+            if (magic != 42 && magic != 0x4352 && magic != 0x4F52) return 1;
+
+            uint firstIfd = ReadU32(r, le);
+            if (firstIfd == 0 || firstIfd + 2 > (uint)fs.Length) return 1;
+
+            fs.Position = firstIfd;
+            ushort count = ReadU16(r, le);
+
+            for (int i = 0; i < count && fs.Position + 12 <= fs.Length; i++)
+            {
+                ushort tag = ReadU16(r, le);
+                ReadU16(r, le); // type
+                ReadU32(r, le); // count
+                uint val = ReadU32(r, le);
+
+                if (tag == 0x0112) // Orientation — SHORT, left-justified in the 4-byte value field
+                    return le ? (ushort)(val & 0xFFFF) : (ushort)(val >> 16);
+            }
+        }
+        catch { }
+        return 1;
+    }
 
     // ── JPEG extraction ────────────────────────────────────────────────────────
     //

@@ -37,12 +37,12 @@ export const getAdminSelections = (id: number) =>
 export const getAdminPrintOrders = (id: number) =>
   api.get<PrintOrderDto[]>(`/galleries/${id}/print-orders`).then(r => r.data);
 
-export const downloadSelections = async (id: number, galleryName: string) => {
+export const downloadSelections = async (id: number, galleryName: string, clientName: string) => {
   const response = await api.get(`/galleries/${id}/download`, { responseType: 'blob' });
   const url = URL.createObjectURL(response.data as Blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${galleryName.replace(/\s+/g, '_')}_selections.zip`;
+  a.download = `${galleryName}_${clientName}.zip`.replace(/\s+/g, '_').replace(/\//g, '-');
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -55,8 +55,8 @@ export const updateGalleryStatus = (id: number, status: number) =>
 export const updatePhotoOrder = (id: number, items: { photoId: number; sortOrder: number }[]) =>
   api.put(`/galleries/${id}/photos/order`, { items });
 
-export const regeneratePreviews = (id: number) =>
-  api.post<{ fixedCount: number; total: number }>(`/galleries/${id}/regenerate-previews`).then(r => r.data);
+export const regeneratePreviews = (id: number, force = false) =>
+  api.post<{ fixedCount: number; total: number }>(`/galleries/${id}/regenerate-previews${force ? '?force=true' : ''}`).then(r => r.data);
 
 export const rotatePhoto = (galleryId: number, photoId: number) =>
   api.post<Photo>(`/galleries/${galleryId}/photos/${photoId}/rotate`).then(r => r.data);

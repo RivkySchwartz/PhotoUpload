@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Star, AlertCircle, Lock, Sparkles, ShoppingCart, Printer, ChevronRight, ChevronLeft, X, Plus, Minus } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -58,6 +58,22 @@ export default function GalleryPage() {
       setPageState('gallery');
     } catch { setPageState('error'); }
   }, [token]);
+
+  // Freshly uploaded RAW/HEIC photos may still be generating a preview server-side.
+  // Poll briefly so they appear automatically instead of staying broken until a manual refresh.
+  const previewPollAttempts = useRef(0);
+  useEffect(() => {
+    if (pageState !== 'gallery' || !token) return;
+    if (!photos.some(p => !p.previewUrl)) { previewPollAttempts.current = 0; return; }
+    if (previewPollAttempts.current >= 15) return; // ~1 minute of retries, then give up automatically
+
+    const timer = setTimeout(() => {
+      previewPollAttempts.current += 1;
+      getPublicPhotos(token).then(setPhotos).catch(() => {});
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [pageState, photos, token]);
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

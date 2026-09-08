@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PhotoUpload.Data;
 
@@ -11,9 +12,11 @@ using PhotoUpload.Data;
 namespace PhotoUpload.Data.Migrations
 {
     [DbContext(typeof(photoDataContext))]
-    partial class photoDataContextModelSnapshot : ModelSnapshot
+    [Migration("20260720011921_AddGalleryClientPhone")]
+    partial class AddGalleryClientPhone
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

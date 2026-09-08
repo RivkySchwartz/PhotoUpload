@@ -72,7 +72,7 @@ public class EmailService : IEmailService
             {
                 builder.HtmlBody = $"""
                     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#111;color:#eee;padding:32px;border-radius:12px;">
-                      <h2 style="color:#fff;margin-top:0">Hi {clientName}! 🎉</h2>
+                      <h2 style="color:#fff;margin-top:0">Hi {clientName}!</h2>
                       <p style="color:#ccc;font-size:16px;">
                         Thank you for selecting your photos from <strong style="color:#fff">{galleryName}</strong>.
                         Your photographer will be in touch soon!

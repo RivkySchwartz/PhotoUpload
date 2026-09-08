@@ -53,13 +53,20 @@ public class Program
                     new System.Text.Json.Serialization.JsonStringEnumConverter()));
         builder.Services.AddEndpointsApiExplorer();
 
-        // ── CORS (dev) ────────────────────────────────────────────────────
+        // ── CORS ──────────────────────────────────────────────────────────
         builder.Services.AddCors(opts =>
         {
             opts.AddDefaultPolicy(policy =>
-                policy.WithOrigins("http://localhost:3000")
-                      .AllowAnyMethod()
-                      .AllowAnyHeader());
+            {
+                if (builder.Environment.IsDevelopment())
+                    policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+                else
+                    policy.WithOrigins(
+                              builder.Configuration["Cors:AllowedOrigins"]?.Split(',')
+                              ?? [])
+                          .AllowAnyMethod()
+                          .AllowAnyHeader();
+            });
         });
 
         builder.WebHost.ConfigureKestrel(o =>
@@ -86,6 +93,11 @@ public class Program
         provider.Mappings[".arw"] = "image/x-sony-arw";
         provider.Mappings[".heic"] = "image/heic";
 
+        if (!app.Environment.IsDevelopment())
+            app.UseHsts();
+
+        app.UseCors();
+
         app.UseStaticFiles(new StaticFileOptions
         {
             FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
@@ -93,11 +105,6 @@ public class Program
             RequestPath = "/uploads",
             ContentTypeProvider = provider
         });
-
-        if (!app.Environment.IsDevelopment())
-            app.UseHsts();
-
-        app.UseCors();
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();

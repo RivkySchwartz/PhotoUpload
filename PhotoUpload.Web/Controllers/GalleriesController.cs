@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using PhotoUpload.Data;
 using PhotoUpload.Data.Models;
 using PhotoUpload.Web.DTOs;
@@ -25,19 +26,22 @@ public class GalleriesController : ControllerBase
     private readonly IThumbnailService _thumbs;
     private readonly IZipService _zip;
     private readonly ILogger<GalleriesController> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public GalleriesController(
         photoDataContext db,
         IFileStorageService storage,
         IThumbnailService thumbs,
         IZipService zip,
-        ILogger<GalleriesController> logger)
+        ILogger<GalleriesController> logger,
+        IServiceScopeFactory scopeFactory)
     {
         _db = db;
         _storage = storage;
         _thumbs = thumbs;
         _zip = zip;
         _logger = logger;
+        _scopeFactory = scopeFactory;
     }
 
     // ── List all galleries ─────────────────────────────────────────────────
@@ -91,6 +95,7 @@ public class GalleriesController : ControllerBase
             Name = request.Name.Trim(),
             ClientName = request.ClientName.Trim(),
             ClientEmail = request.ClientEmail?.Trim(),
+            ClientPhone = request.ClientPhone?.Trim(),
             MaxSelections = request.MaxSelections,
             UniqueToken = Guid.NewGuid().ToString("N"),
             PasswordHash = string.IsNullOrWhiteSpace(request.Password)
@@ -122,6 +127,8 @@ public class GalleriesController : ControllerBase
 
         if (gallery == null) return NotFound();
 
+        var printOrders = await _db.PrintOrders.Where(p => p.GalleryId == id).ToListAsync();
+        _db.PrintOrders.RemoveRange(printOrders);
         _db.Selections.RemoveRange(gallery.Selections);
         _db.Photos.RemoveRange(gallery.Photos);
         _db.Galleries.Remove(gallery);
@@ -187,7 +194,65 @@ public class GalleriesController : ControllerBase
 
         await _db.SaveChangesAsync();
 
+        // Generate thumbnails/previews in the background so the client-facing gallery
+        // link is renderable even if no admin ever opens this gallery in the admin panel.
+        var newPhotoIds = newPhotos.Select(p => p.Id).ToList();
+        _ = GeneratePreviewsInBackgroundAsync(newPhotoIds);
+
         return Ok(newPhotos.Select(MapPhotoToDto));
+    }
+
+    private const int BackgroundGenerationConcurrency = 4;
+
+    /// <summary>
+    /// Fire-and-forget preview/thumbnail generation for freshly uploaded photos.
+    /// Processes photos with bounded concurrency (each on its own DI scope, since
+    /// EF Core's DbContext isn't thread-safe) so large RAW batches don't trickle in
+    /// one at a time.
+    /// </summary>
+    private async Task GeneratePreviewsInBackgroundAsync(List<int> photoIds)
+    {
+        using var throttle = new SemaphoreSlim(BackgroundGenerationConcurrency);
+
+        async Task ProcessOne(int photoId)
+        {
+            await throttle.WaitAsync();
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<photoDataContext>();
+                var thumbs = scope.ServiceProvider.GetRequiredService<IThumbnailService>();
+                var logger = scope.ServiceProvider.GetRequiredService<ILogger<GalleriesController>>();
+
+                try
+                {
+                    var photo = await db.Photos.FindAsync(photoId);
+                    if (photo == null) return;
+
+                    var gallery = await db.Galleries.FindAsync(photo.GalleryId);
+                    if (gallery == null) return;
+
+                    var ext = Path.GetExtension(photo.FileName).ToLowerInvariant();
+                    if (!thumbs.SupportsFormat(ext)) return;
+
+                    photo.ThumbnailPath = await thumbs.GenerateThumbnailAsync(
+                        photo.OriginalPath, gallery.UniqueToken, photo.FileName);
+                    photo.PreviewPath = await thumbs.GeneratePreviewAsync(
+                        photo.OriginalPath, gallery.UniqueToken, photo.FileName);
+                    await db.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Background preview generation failed for photo {PhotoId}", photoId);
+                }
+            }
+            finally
+            {
+                throttle.Release();
+            }
+        }
+
+        await Task.WhenAll(photoIds.Select(ProcessOne));
     }
 
     // ── Get photos ────────────────────────────────────────────────────────
@@ -310,7 +375,7 @@ public class GalleriesController : ControllerBase
         ));
 
         var zipStream = await _zip.CreateZipAsync(files);
-        var zipName = $"{gallery.Name}_selections.zip"
+        var zipName = $"{gallery.Name}_{gallery.ClientName}.zip"
             .Replace(" ", "_")
             .Replace("/", "-");
 
@@ -378,11 +443,17 @@ public class GalleriesController : ControllerBase
     /// Generates missing thumbnails and preview images for RAW photos in a gallery.
     /// Safe to call multiple times — skips photos that already have previews.
     /// </summary>
+    /// <param name="id">Gallery database ID.</param>
+    /// <param name="force">
+    /// When true, regenerates every photo's thumbnail/preview from scratch, even if one
+    /// already exists on disk. Use this after a processing fix (e.g. orientation) that
+    /// needs to reach photos uploaded before the fix shipped.
+    /// </param>
     [HttpPost("{id:int}/regenerate-previews")]
     [Authorize(Roles = "Admin,Photographer")]
     [ProducesResponseType(typeof(object), 200)]
     [ProducesResponseType(404)]
-    public async Task<IActionResult> RegeneratePreviews(int id)
+    public async Task<IActionResult> RegeneratePreviews(int id, [FromQuery] bool force = false)
     {
         var gallery = await _db.Galleries.FindAsync(id);
         if (gallery == null) return NotFound();
@@ -397,17 +468,17 @@ public class GalleriesController : ControllerBase
             var ext = Path.GetExtension(photo.FileName).ToLowerInvariant();
             bool changed = false;
 
-            if (photo.ThumbnailPath == null && _thumbs.SupportsFormat(ext))
+            if ((force || photo.ThumbnailPath == null) && _thumbs.SupportsFormat(ext))
             {
                 photo.ThumbnailPath = await _thumbs.GenerateThumbnailAsync(
-                    photo.OriginalPath, gallery.UniqueToken, photo.FileName);
+                    photo.OriginalPath, gallery.UniqueToken, photo.FileName, overwrite: force);
                 changed = true;
             }
 
-            if (photo.PreviewPath == null)
+            if (force || photo.PreviewPath == null)
             {
                 var preview = await _thumbs.GeneratePreviewAsync(
-                    photo.OriginalPath, gallery.UniqueToken, photo.FileName);
+                    photo.OriginalPath, gallery.UniqueToken, photo.FileName, overwrite: force);
                 if (preview != null) { photo.PreviewPath = preview; changed = true; }
             }
 
@@ -466,9 +537,9 @@ public class GalleriesController : ControllerBase
         if (_thumbs.SupportsFormat(ext))
         {
             photo.ThumbnailPath = await _thumbs.GenerateThumbnailAsync(
-                photo.OriginalPath, gallery.UniqueToken, photo.FileName);
+                photo.OriginalPath, gallery.UniqueToken, photo.FileName, overwrite: true);
             photo.PreviewPath = await _thumbs.GeneratePreviewAsync(
-                photo.OriginalPath, gallery.UniqueToken, photo.FileName);
+                photo.OriginalPath, gallery.UniqueToken, photo.FileName, overwrite: true);
             await _db.SaveChangesAsync();
         }
 
@@ -478,7 +549,7 @@ public class GalleriesController : ControllerBase
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private GalleryDto MapToDto(Gallery g) => new(
-        g.Id, g.Name, g.ClientName, g.ClientEmail,
+        g.Id, g.Name, g.ClientName, g.ClientEmail, g.ClientPhone,
         g.MaxSelections, g.PasswordHash != null,
         g.UniqueToken, g.CreatedAt, g.Status,
         g.Photos.Count, g.Selections.Count

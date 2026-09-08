@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Download, Copy, Star } from 'lucide-react';
+import { ArrowLeft, Download, Copy, Star, RefreshCw } from 'lucide-react';
 import {
   getGallery, getAdminPhotos, getAdminSelections, deletePhoto,
   updateGalleryStatus, downloadSelections, updatePhotoOrder, rotatePhoto,
-  generatePhotoPreview, getAdminPrintOrders
+  generatePhotoPreview, getAdminPrintOrders, regeneratePreviews
 } from '../../api/galleries';
 import AdminSidebar from '../../components/AdminSidebar';
 import PhotoCard from '../../components/PhotoCard';
@@ -28,6 +28,7 @@ export default function GalleryDetailPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'photos' | 'selections'>('photos');
   const [downloading, setDownloading] = useState(false);
+  const [fixingRotation, setFixingRotation] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
 
   const canUpload = role === 'Admin' || role === 'Photographer';
@@ -69,7 +70,9 @@ export default function GalleryDetailPage() {
       }
     }
 
-    // Auto-generate previews for any photos still missing one (background, 2 concurrent)
+    // Auto-generate previews for any photos still missing one (background, bounded concurrency).
+    // Each photo is its own file, so there's no cross-photo race — the server already
+    // handles same-file races safely, so workers can run in parallel.
     const missing = p.filter(photo => !photo.previewUrl);
     if (missing.length > 0) {
       let idx = 0;
@@ -82,8 +85,9 @@ export default function GalleryDetailPage() {
         } catch {}
         await processNext();
       };
-      // Fire-and-forget — sequential so concurrent writes never race on the same file
-      processNext();
+      // Fire-and-forget — a handful of parallel workers drain the queue
+      const WORKERS = 4;
+      Array.from({ length: Math.min(WORKERS, missing.length) }, () => processNext());
     }
   }, [galleryId, role]);
 
@@ -123,11 +127,25 @@ export default function GalleryDetailPage() {
     if (!gallery) return;
     setDownloading(true);
     try {
-      await downloadSelections(galleryId, gallery.name);
+      await downloadSelections(galleryId, gallery.name, gallery.clientName);
     } catch {
       toast.error('Download failed. Make sure there are selections to download.');
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleFixRotation = async () => {
+    if (!confirm('Regenerate thumbnails and previews for every photo in this gallery? Useful after a processing fix — can take a while for large RAW galleries.')) return;
+    setFixingRotation(true);
+    try {
+      const { fixedCount, total } = await regeneratePreviews(galleryId, true);
+      setPhotos(await getAdminPhotos(galleryId));
+      toast.success(`Regenerated ${fixedCount} of ${total} photos`);
+    } catch {
+      toast.error('Failed to regenerate previews');
+    } finally {
+      setFixingRotation(false);
     }
   };
 
@@ -201,6 +219,9 @@ export default function GalleryDetailPage() {
               </span>
             )}
             <button className="btn btn--ghost" onClick={copyLink}><Copy size={15} /> Copy Link</button>
+            <button className="btn btn--ghost" onClick={handleFixRotation} disabled={fixingRotation}>
+              <RefreshCw size={15} /> {fixingRotation ? 'Fixing…' : 'Fix Rotation'}
+            </button>
             {selections.length > 0 && (
               <button className="btn btn--ghost" onClick={handleDownload} disabled={downloading}>
                 <Download size={15} /> {downloading ? 'Downloading…' : 'Download ZIP'}

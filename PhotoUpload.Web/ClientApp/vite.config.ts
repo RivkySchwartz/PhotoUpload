@@ -17,6 +17,7 @@ export default defineConfig({
   server: {
     port: 3000,
     strictPort : true,
+    allowedHosts: ['patronize-announcer-chant.ngrok-free.dev'],
     proxy: {
       '/api' : {
         target: 'http://localhost:5292',
@@ -25,6 +26,11 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, '/api'),
         proxyTimeout: 600000,
         timeout: 600000
+      },
+      '/uploads': {
+        target: 'http://localhost:5292',
+        changeOrigin: true,
+        secure: false,
       }
     }
   }

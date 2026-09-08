@@ -20,7 +20,7 @@ export default function GalleryListPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<CreateGalleryRequest>({
-    name: '', clientName: '', clientEmail: '', maxSelections: 10, password: ''
+    name: '', clientName: '', clientEmail: '', clientPhone: '', maxSelections: 10, password: ''
   });
   const [creating, setCreating] = useState(false);
 
@@ -49,11 +49,12 @@ export default function GalleryListPage() {
       const g = await createGallery({
         ...form,
         password: form.password || undefined,
-        clientEmail: form.clientEmail || undefined
+        clientEmail: form.clientEmail || undefined,
+        clientPhone: form.clientPhone || undefined,
       });
       setGalleries(prev => [g, ...prev]);
       setShowCreate(false);
-      setForm({ name: '', clientName: '', clientEmail: '', maxSelections: 10, password: '' });
+      setForm({ name: '', clientName: '', clientEmail: '', clientPhone: '', maxSelections: 10, password: '' });
 
       const link = `${window.location.origin}/gallery/${g.uniqueToken}`;
       await navigator.clipboard.writeText(link).catch(() => {});
@@ -124,6 +125,12 @@ export default function GalleryListPage() {
                     <input type="email" value={form.clientEmail} onChange={e => setForm(p => ({ ...p, clientEmail: e.target.value }))} />
                   </div>
                   <div className="form-group">
+                    <label>Client Phone</label>
+                    <input type="tel" value={form.clientPhone} onChange={e => setForm(p => ({ ...p, clientPhone: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
                     <label>Max Selections *</label>
                     <input type="number" min={1} required value={form.maxSelections} onChange={e => setForm(p => ({ ...p, maxSelections: +e.target.value }))} />
                   </div>
@@ -176,6 +183,7 @@ export default function GalleryListPage() {
                     <td>
                       <div>{g.clientName}</div>
                       {g.clientEmail && <div className="text-muted text-sm">{g.clientEmail}</div>}
+                      {g.clientPhone && <div className="text-muted text-sm">{g.clientPhone}</div>}
                     </td>
                     <td>{g.photoCount}</td>
                     <td>{g.selectionCount} / {g.maxSelections}</td>

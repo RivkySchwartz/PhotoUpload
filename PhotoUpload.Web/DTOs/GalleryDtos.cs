@@ -7,6 +7,7 @@ public record CreateGalleryRequest(
     [Required, MaxLength(200)] string Name,
     [Required, MaxLength(200)] string ClientName,
     [MaxLength(320)] string? ClientEmail,
+    [MaxLength(30)] string? ClientPhone,
     [Range(1, 10000)] int MaxSelections,
     string? Password
 );
@@ -16,6 +17,7 @@ public record GalleryDto(
     string Name,
     string ClientName,
     string? ClientEmail,
+    string? ClientPhone,
     int MaxSelections,
     bool IsPasswordProtected,
     string UniqueToken,
